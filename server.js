@@ -1,44 +1,74 @@
 import express from 'express';
-import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// 1. Setup for file paths (Required for ES Modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-const server = createServer(app);
-const wss = new WebSocketServer({ server });
+// 2. Define the path to your database.csv
+const csvFilePath = path.join(__dirname, 'database.csv');
 
-console.log("🚀 RAW DATA SERVER STARTED");
+// 3. Ensure the file has headers (if it's empty or missing)
+if (!fs.existsSync(csvFilePath)) {
+    fs.writeFileSync(csvFilePath, 'Timestamp,Angle,Distance\n');
+    console.log("📄 Created new database.csv with headers");
+}
 
-// 1. WebSocket: Broadcast raw data to anyone who connects
-wss.on('connection', (ws, req) => {
-  const clientIp = req.socket.remoteAddress;
-  console.log(`🔌 New Listener Connected from: ${clientIp}`);
+console.log("🚀 Server Started");
+
+// ==================================================================
+// ROUTE 1: VIEW/DOWNLOAD THE DATABASE
+// Go to: https://your-app-name.onrender.com/database.csv
+// ==================================================================
+app.get('/database.csv', (req, res) => {
+    res.download(csvFilePath, 'database.csv', (err) => {
+        if (err) {
+            res.status(500).send("Error downloading file.");
+        }
+    });
 });
 
-// 2. HTTP POST: Receive data from ESP32
+// ==================================================================
+// ROUTE 2: RECEIVE DATA FROM ESP32 AND AUTO-SAVE
+// ==================================================================
 app.post('/api/telemetry', (req, res) => {
-  const { angle, distance } = req.body;
+    const { angle, distance } = req.body;
 
-  // Log to Server Terminal
-  console.log(`📥 RAW IN: Angle=${angle}, Dist=${distance}`);
-
-  // Broadcast to all WebSocket listeners (e.g., your customized URL)
-  const jsonPayload = JSON.stringify({ angle, distance });
-  
-  wss.clients.forEach((client) => {
-    if (client.readyState === 1) {
-      client.send(jsonPayload);
+    // Validation: Ensure data is not empty
+    if (angle === undefined || distance === undefined) {
+        return res.status(400).send("Missing data");
     }
-  });
 
-  res.sendStatus(200); // Tell ESP32 "Data Received"
+    // Prepare the CSV row
+    const timestamp = new Date().toISOString();
+    const logEntry = `${timestamp},${angle},${distance}\n`;
+
+    // AUTOMATICALLY APPEND TO FILE
+    fs.appendFile(csvFilePath, logEntry, (err) => {
+        if (err) {
+            console.error("❌ Error writing to file:", err);
+            return res.status(500).send("Write Error");
+        }
+        console.log(`💾 Auto-Saved: ${angle}°, ${distance}cm`);
+    });
+
+    res.sendStatus(200);
 });
 
-// Start Server on Port 3001
-server.listen(3001, '0.0.0.0', () => {
-  console.log(`✅ Server Listening on Port 3001`);
-  console.log(`👉 Raw WS Stream available at: ws://YOUR_PC_IP:3001`);
+// Default Home Route
+app.get('/', (req, res) => {
+    res.send("✅ Server Running. Go to <b>/database.csv</b> to download your data.");
+});
+
+// Start the Server
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+    console.log(`✅ Server running on port ${PORT}`);
 });
