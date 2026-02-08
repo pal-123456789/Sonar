@@ -5,58 +5,59 @@ const app = express();
 app.use(cors());       
 app.use(express.json());
 
-// --- DATA STORAGE ---
-// This list will hold all your sensor data in memory.
-// Note: On Render's Free Tier, this list resets if the server restarts.
-const sensorHistory = []; 
+// --- DYNAMIC STORAGE ---
+let sensorHistory = []; 
 
-console.log("🚀 History API Server Started");
+console.log("🚀 High-Speed Server Started");
+
+// ==================================================================
+// 🧹 CLEANUP SYSTEM (The "Self-Cleaning" feature)
+// Runs every 2 seconds. Deletes anything older than 10 seconds.
+// ==================================================================
+setInterval(() => {
+    const now = Date.now();
+    const beforeCount = sensorHistory.length;
+
+    // Filter: Keep only data that is less than 10,000ms (10s) old
+    sensorHistory = sensorHistory.filter(point => (now - point.timestampRaw) < 10000);
+
+    if (sensorHistory.length < beforeCount) {
+        // console.log("🧹 Cleaned old data"); // Uncomment to see cleanup logs
+    }
+}, 2000);
 
 // ==================================================================
 // 🔗 ROOT ROUTE (GET /)
-// This is what you asked for. 
-// Go to "https://your-app.onrender.com" to see ALL data.
+// Returns only the "Fresh" data
 // ==================================================================
 app.get('/', (req, res) => {
-    // Return the entire list as JSON
     res.json(sensorHistory);
 });
 
 // ==================================================================
 // 📥 INPUT ROUTE (POST /api/telemetry)
-// The ESP32 sends data here to be saved.
 // ==================================================================
 app.post('/api/telemetry', (req, res) => {
     const { angle, distance } = req.body;
 
-    // 1. Validate Data
-    if (angle === undefined || distance === undefined) {
-        return res.status(400).send("Missing Data");
-    }
+    if (angle === undefined || distance === undefined) return res.sendStatus(400);
 
-    // 2. Create the data packet
     const newData = {
-        id: sensorHistory.length + 1, // clear ID like 1, 2, 3...
-        timestamp: new Date().toISOString(),
+        id: Date.now(),             // Unique ID based on time
+        timestampRaw: Date.now(),    // Used for math (cleanup)
+        timestamp: new Date().toISOString(), // Readable time
         angle: angle,
         distance: distance
     };
 
-    // 3. Add to the history list
     sensorHistory.push(newData);
-
-    // (Optional) Limit to last 5000 points to save memory
-    if (sensorHistory.length > 5000) {
-        sensorHistory.shift(); 
-    }
-
-    console.log(`✅ Saved Data Point #${newData.id}: ${angle}°, ${distance}cm`);
     
-    // Send success back to ESP32
+    // Log sparingly so terminal isn't flooded
+    console.log(`⚡ New Data: ${angle}°, ${distance}cm | Total in buffer: ${sensorHistory.length}`);
+
     res.sendStatus(200);
 });
 
-// Start Server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
     console.log(`✅ Server running on port ${PORT}`);
