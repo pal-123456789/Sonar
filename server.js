@@ -1,74 +1,56 @@
 import express from 'express';
 import cors from 'cors';
 import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-// 1. Setup for file paths (Required for ES Modules)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
+app.use(cors());       // Allow anyone to fetch this data
 app.use(express.json());
 
-// 2. Define the path to your database.csv
-const csvFilePath = path.join(__dirname, 'database.csv');
-
-// 3. Ensure the file has headers (if it's empty or missing)
-if (!fs.existsSync(csvFilePath)) {
-    fs.writeFileSync(csvFilePath, 'Timestamp,Angle,Distance\n');
-    console.log("📄 Created new database.csv with headers");
+// 1. Initialize the JSON file if it doesn't exist
+const DATA_FILE = 'data.json';
+if (!fs.existsSync(DATA_FILE)) {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({ angle: 0, distance: 0 }));
 }
 
-console.log("🚀 Server Started");
+console.log("🚀 API Server Started");
 
 // ==================================================================
-// ROUTE 1: VIEW/DOWNLOAD THE DATABASE
-// Go to: https://your-app-name.onrender.com/database.csv
+// 🔗 THE LINK YOU WANT: GET /data.json
+// This gives you the raw data: {"angle": 45, "distance": 12}
 // ==================================================================
-app.get('/database.csv', (req, res) => {
-    res.download(csvFilePath, 'database.csv', (err) => {
-        if (err) {
-            res.status(500).send("Error downloading file.");
-        }
-    });
+app.get('/data.json', (req, res) => {
+    // Read the file and send it to whoever asks
+    const data = fs.readFileSync(DATA_FILE);
+    const jsonData = JSON.parse(data);
+    res.json(jsonData);
 });
 
 // ==================================================================
-// ROUTE 2: RECEIVE DATA FROM ESP32 AND AUTO-SAVE
+// 📥 INPUT: ESP32 sends data here
 // ==================================================================
 app.post('/api/telemetry', (req, res) => {
     const { angle, distance } = req.body;
 
-    // Validation: Ensure data is not empty
-    if (angle === undefined || distance === undefined) {
-        return res.status(400).send("Missing data");
-    }
+    // 1. Create the new data object
+    const newData = {
+        angle: angle,
+        distance: distance,
+        lastUpdated: new Date().toISOString() // Optional: adds a timestamp
+    };
 
-    // Prepare the CSV row
-    const timestamp = new Date().toISOString();
-    const logEntry = `${timestamp},${angle},${distance}\n`;
+    // 2. Overwrite the data.json file with new data
+    fs.writeFileSync(DATA_FILE, JSON.stringify(newData, null, 2));
 
-    // AUTOMATICALLY APPEND TO FILE
-    fs.appendFile(csvFilePath, logEntry, (err) => {
-        if (err) {
-            console.error("❌ Error writing to file:", err);
-            return res.status(500).send("Write Error");
-        }
-        console.log(`💾 Auto-Saved: ${angle}°, ${distance}cm`);
-    });
-
+    console.log(`Updated JSON: ${angle}°, ${distance}cm`);
     res.sendStatus(200);
 });
 
-// Default Home Route
+// Default Route
 app.get('/', (req, res) => {
-    res.send("✅ Server Running. Go to <b>/database.csv</b> to download your data.");
+    res.send("✅ Server Live. Get your data at: <b>/data.json</b>");
 });
 
-// Start the Server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`✅ Server running on port ${PORT}`);
+    console.log(`✅ JSON API running on port ${PORT}`);
 });
