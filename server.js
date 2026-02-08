@@ -5,30 +5,41 @@ const app = express();
 app.use(cors());       
 app.use(express.json());
 
+// ==================================================================
+// ⚙️ CONFIGURATION
+// ==================================================================
+const RETENTION_MINUTES = 5; // Keep data for 5 minutes
+const RETENTION_MS = RETENTION_MINUTES * 60 * 1000; 
+
 // --- DYNAMIC STORAGE ---
 let sensorHistory = []; 
 
-console.log("🚀 High-Speed Server Started");
+console.log(`🚀 Server Started. Keeping data for ${RETENTION_MINUTES} minutes.`);
 
 // ==================================================================
-// 🧹 CLEANUP SYSTEM (The "Self-Cleaning" feature)
-// Runs every 2 seconds. Deletes anything older than 10 seconds.
+// 🧹 CLEANUP SYSTEM (Runs every 10 seconds)
+// Deletes data older than 5 minutes to keep memory fresh.
 // ==================================================================
 setInterval(() => {
     const now = Date.now();
     const beforeCount = sensorHistory.length;
 
-    // Filter: Keep only data that is less than 10,000ms (10s) old
-    sensorHistory = sensorHistory.filter(point => (now - point.timestampRaw) < 10000);
+    // Filter: Keep only data newer than the retention period
+    sensorHistory = sensorHistory.filter(point => (now - point.timestampRaw) < RETENTION_MS);
+
+    // Optional: Safety Cap (Prevent crashing if data gets too huge)
+    if (sensorHistory.length > 10000) {
+        sensorHistory = sensorHistory.slice(-10000); // Keep only last 10,000 points
+    }
 
     if (sensorHistory.length < beforeCount) {
-        // console.log("🧹 Cleaned old data"); // Uncomment to see cleanup logs
+         console.log(`🧹 Cleanup: Removed ${beforeCount - sensorHistory.length} old points.`);
     }
-}, 2000);
+}, 10000); // Check for cleanup every 10 seconds
 
 // ==================================================================
 // 🔗 ROOT ROUTE (GET /)
-// Returns only the "Fresh" data
+// Returns the 5-minute history buffer
 // ==================================================================
 app.get('/', (req, res) => {
     res.json(sensorHistory);
@@ -43,17 +54,19 @@ app.post('/api/telemetry', (req, res) => {
     if (angle === undefined || distance === undefined) return res.sendStatus(400);
 
     const newData = {
-        id: Date.now(),             // Unique ID based on time
-        timestampRaw: Date.now(),    // Used for math (cleanup)
-        timestamp: new Date().toISOString(), // Readable time
+        id: Date.now(),             
+        timestampRaw: Date.now(),    
+        timestamp: new Date().toISOString(), 
         angle: angle,
         distance: distance
     };
 
     sensorHistory.push(newData);
     
-    // Log sparingly so terminal isn't flooded
-    console.log(`⚡ New Data: ${angle}°, ${distance}cm | Total in buffer: ${sensorHistory.length}`);
+    // Log every 10th point to keep terminal clean
+    if (sensorHistory.length % 10 === 0) {
+        console.log(`⚡ Buffer Size: ${sensorHistory.length} points | Latest: ${angle}°, ${distance}cm`);
+    }
 
     res.sendStatus(200);
 });
