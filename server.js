@@ -1,56 +1,63 @@
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 
 const app = express();
-app.use(cors());       // Allow anyone to fetch this data
+app.use(cors());       
 app.use(express.json());
 
-// 1. Initialize the JSON file if it doesn't exist
-const DATA_FILE = 'data.json';
-if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ angle: 0, distance: 0 }));
-}
+// --- DATA STORAGE ---
+// This list will hold all your sensor data in memory.
+// Note: On Render's Free Tier, this list resets if the server restarts.
+const sensorHistory = []; 
 
-console.log("🚀 API Server Started");
+console.log("🚀 History API Server Started");
 
 // ==================================================================
-// 🔗 THE LINK YOU WANT: GET /data.json
-// This gives you the raw data: {"angle": 45, "distance": 12}
+// 🔗 ROOT ROUTE (GET /)
+// This is what you asked for. 
+// Go to "https://your-app.onrender.com" to see ALL data.
 // ==================================================================
-app.get('/data.json', (req, res) => {
-    // Read the file and send it to whoever asks
-    const data = fs.readFileSync(DATA_FILE);
-    const jsonData = JSON.parse(data);
-    res.json(jsonData);
+app.get('/', (req, res) => {
+    // Return the entire list as JSON
+    res.json(sensorHistory);
 });
 
 // ==================================================================
-// 📥 INPUT: ESP32 sends data here
+// 📥 INPUT ROUTE (POST /api/telemetry)
+// The ESP32 sends data here to be saved.
 // ==================================================================
 app.post('/api/telemetry', (req, res) => {
     const { angle, distance } = req.body;
 
-    // 1. Create the new data object
+    // 1. Validate Data
+    if (angle === undefined || distance === undefined) {
+        return res.status(400).send("Missing Data");
+    }
+
+    // 2. Create the data packet
     const newData = {
+        id: sensorHistory.length + 1, // clear ID like 1, 2, 3...
+        timestamp: new Date().toISOString(),
         angle: angle,
-        distance: distance,
-        lastUpdated: new Date().toISOString() // Optional: adds a timestamp
+        distance: distance
     };
 
-    // 2. Overwrite the data.json file with new data
-    fs.writeFileSync(DATA_FILE, JSON.stringify(newData, null, 2));
+    // 3. Add to the history list
+    sensorHistory.push(newData);
 
-    console.log(`Updated JSON: ${angle}°, ${distance}cm`);
+    // (Optional) Limit to last 5000 points to save memory
+    if (sensorHistory.length > 5000) {
+        sensorHistory.shift(); 
+    }
+
+    console.log(`✅ Saved Data Point #${newData.id}: ${angle}°, ${distance}cm`);
+    
+    // Send success back to ESP32
     res.sendStatus(200);
 });
 
-// Default Route
-app.get('/', (req, res) => {
-    res.send("✅ Server Live. Get your data at: <b>/data.json</b>");
-});
-
+// Start Server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
-    console.log(`✅ JSON API running on port ${PORT}`);
+    console.log(`✅ Server running on port ${PORT}`);
 });
