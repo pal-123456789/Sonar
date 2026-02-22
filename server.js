@@ -78,7 +78,6 @@
 
 
 
-// server.js - The Brain of the Operation
 import express from 'express';
 import cors from 'cors';
 
@@ -86,37 +85,40 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// STORE THE LIVE SPECTRUM
-// We don't need a history for this demo, just the "Right Now" status.
+// STORE THE LIVE STATUS (Now includes Temp & Amps)
 let machineStatus = {
-    spectrum: [],      // The array of frequencies (e.g., [0, 5, 20, 100, ...])
-    peakFreq: 0,       // The loudest frequency (Hz)
-    peakAmp: 0,        // How loud it is (Magnitude)
-    health: "UNKNOWN", // HEALTHY, WARNING, or CRITICAL
+    spectrum: [],      
+    peakFreq: 0,       
+    peakAmp: 0,
+    temp: 25.0,
+    amps: 0.0,
+    health: "UNKNOWN", 
     timestamp: 0
 };
 
 console.log("🚀 Spectral Guard System Started");
 
-// 1. DASHBOARD ASKS: "How is the machine?"
 app.get('/api/status', (req, res) => {
     res.json(machineStatus);
 });
 
-// 2. ESP32 SAYS: "Here is the latest vibration analysis"
 app.post('/api/telemetry', (req, res) => {
-    const { spectrum, peakFreq, peakAmp } = req.body;
+    // Extract the new variables from the ESP32
+    const { spectrum, peakFreq, peakAmp, temp, amps } = req.body;
 
     if (!spectrum) return res.sendStatus(400);
 
-    // --- AI LOGIC (Simple Expert System) ---
-    // You tune these numbers based on the specific machine you are testing.
+    // --- CLOUD AI LOGIC ---
     let health = "HEALTHY";
     
-    if (peakAmp > 2000) { // If vibration is strong...
-        if (peakFreq < 20) health = "LOOSE MOUNTING"; // Low Freq Wobble
-        else if (peakFreq > 100) health = "BEARING FAULT"; // High Freq Rattle
-        else health = "UNBALANCED LOAD"; // Mid Freq Shake
+    if (temp > 85.0) {
+        health = "CRITICAL OVERHEAT";
+    } else if (amps > 6.5) {
+        health = "POWER SURGE";
+    } else if (peakAmp > 20000) { 
+        health = "SEVERE VIBRATION"; 
+    } else if (peakAmp > 10000) {
+        health = "WARNING: UNBALANCED";
     }
 
     // Update State
@@ -124,11 +126,13 @@ app.post('/api/telemetry', (req, res) => {
         spectrum: spectrum,
         peakFreq: peakFreq,
         peakAmp: peakAmp,
+        temp: temp,
+        amps: amps,
         health: health,
         timestamp: new Date().toLocaleTimeString()
     };
 
-    console.log(`📡 Update: Peak ${peakFreq}Hz @ ${peakAmp} Mag -> ${health}`);
+    console.log(`📡 Update: ${peakFreq}Hz | Temp: ${temp}C | Amps: ${amps}A -> ${health}`);
     res.sendStatus(200);
 });
 
