@@ -83,28 +83,34 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// STORE THE LIVE DATA
+// CONFIGURATION FOR RELIABILITY
+const MAX_HISTORY_POINTS = 50; // Keep enough for a smooth chart but not so much it slows down
+const DATA_EXPIRY_MS = 5 * 60 * 1000; // 5 Minutes auto-delete
+
 let machineStatus = {
     spectrum: [],      
     peakFreq: 0,       
     peakAmp: 0,
     temp: 25.0,
     amps: 0.0,
-    status: "HEALTHY", // Changed 'health' to 'status' to match ESP32 logic
+    status: "OFFLINE", 
     timestamp: Date.now()
 };
 
-// STORE HISTORY (For the charts)
 let history = [];
 
 console.log("🚀 Spectral Guard System Started");
 
-// --- FIXED GET ROUTE ---
-// This now handles the /api/telemetry request from the website
+// GET Route: Returns live data + filtered history
 app.get('/api/telemetry', (req, res) => {
+    // AUTO-DELETE: Filter out data points older than 5 minutes on every request
+    const now = Date.now();
+    history = history.filter(point => (now - point.rawTime) < DATA_EXPIRY_MS);
+
     res.json({
         current: machineStatus,
-        history: history // Sends the last 20 points for the chart
+        history: history,
+        serverTime: now
     });
 });
 
@@ -115,16 +121,12 @@ app.post('/api/telemetry', (req, res) => {
 
     // --- CLOUD AI LOGIC ---
     let currentStatus = "HEALTHY";
-    
-    if (temp > 85.0) {
-        currentStatus = "CRITICAL OVERHEAT";
-    } else if (amps > 6.5) {
-        currentStatus = "POWER SURGE";
-    } else if (peakAmp > 20000) { 
-        currentStatus = "SEVERE VIBRATION"; 
-    } else if (peakAmp > 10000) {
-        currentStatus = "WARNING: UNBALANCED";
-    }
+    if (temp > 85.0) currentStatus = "CRITICAL OVERHEAT";
+    else if (amps > 6.5) currentStatus = "POWER SURGE";
+    else if (peakAmp > 20000) currentStatus = "SEVERE VIBRATION";
+    else if (peakAmp > 10000) currentStatus = "WARNING: UNBALANCED";
+
+    const now = Date.now();
 
     // Update Live State
     machineStatus = {
@@ -134,18 +136,23 @@ app.post('/api/telemetry', (req, res) => {
         temp,
         amps,
         status: currentStatus,
-        timestamp: Date.now()
+        timestamp: now
     };
 
-    // Update History (Keep only the last 20 readings)
+    // Update History with expiration tracking
     history.push({
         temp: temp,
         amps: amps,
-        time: new Date().toLocaleTimeString()
+        time: new Date().toLocaleTimeString(),
+        rawTime: now // Used for the auto-delete filter
     });
-    if (history.length > 20) history.shift(); 
 
-    console.log(`📡 Update: ${peakFreq}Hz | Temp: ${temp}C | Amps: ${amps}A -> ${currentStatus}`);
+    // CIRCULAR BUFFER: Ensure history never exceeds limit
+    if (history.length > MAX_HISTORY_POINTS) {
+        history.shift(); 
+    }
+
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${currentStatus} | T:${temp}C | A:${amps}A`);
     res.sendStatus(200);
 });
 
