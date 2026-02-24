@@ -76,8 +76,6 @@
 //     console.log(`✅ Server running on port ${PORT}`);
 // });
 
-
-
 import express from 'express';
 import cors from 'cors';
 
@@ -85,54 +83,69 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// STORE THE LIVE STATUS (Now includes Temp & Amps)
+// STORE THE LIVE DATA
 let machineStatus = {
     spectrum: [],      
     peakFreq: 0,       
     peakAmp: 0,
     temp: 25.0,
     amps: 0.0,
-    health: "UNKNOWN", 
-    timestamp: 0
+    status: "HEALTHY", // Changed 'health' to 'status' to match ESP32 logic
+    timestamp: Date.now()
 };
+
+// STORE HISTORY (For the charts)
+let history = [];
 
 console.log("🚀 Spectral Guard System Started");
 
-app.get('/api/status', (req, res) => {
-    res.json(machineStatus);
+// --- FIXED GET ROUTE ---
+// This now handles the /api/telemetry request from the website
+app.get('/api/telemetry', (req, res) => {
+    res.json({
+        current: machineStatus,
+        history: history // Sends the last 20 points for the chart
+    });
 });
 
 app.post('/api/telemetry', (req, res) => {
-    // Extract the new variables from the ESP32
     const { spectrum, peakFreq, peakAmp, temp, amps } = req.body;
 
-    if (!spectrum) return res.sendStatus(400);
+    if (spectrum === undefined) return res.sendStatus(400);
 
     // --- CLOUD AI LOGIC ---
-    let health = "HEALTHY";
+    let currentStatus = "HEALTHY";
     
     if (temp > 85.0) {
-        health = "CRITICAL OVERHEAT";
+        currentStatus = "CRITICAL OVERHEAT";
     } else if (amps > 6.5) {
-        health = "POWER SURGE";
+        currentStatus = "POWER SURGE";
     } else if (peakAmp > 20000) { 
-        health = "SEVERE VIBRATION"; 
+        currentStatus = "SEVERE VIBRATION"; 
     } else if (peakAmp > 10000) {
-        health = "WARNING: UNBALANCED";
+        currentStatus = "WARNING: UNBALANCED";
     }
 
-    // Update State
+    // Update Live State
     machineStatus = {
-        spectrum: spectrum,
-        peakFreq: peakFreq,
-        peakAmp: peakAmp,
-        temp: temp,
-        amps: amps,
-        health: health,
-        timestamp: new Date().toLocaleTimeString()
+        spectrum,
+        peakFreq,
+        peakAmp,
+        temp,
+        amps,
+        status: currentStatus,
+        timestamp: Date.now()
     };
 
-    console.log(`📡 Update: ${peakFreq}Hz | Temp: ${temp}C | Amps: ${amps}A -> ${health}`);
+    // Update History (Keep only the last 20 readings)
+    history.push({
+        temp: temp,
+        amps: amps,
+        time: new Date().toLocaleTimeString()
+    });
+    if (history.length > 20) history.shift(); 
+
+    console.log(`📡 Update: ${peakFreq}Hz | Temp: ${temp}C | Amps: ${amps}A -> ${currentStatus}`);
     res.sendStatus(200);
 });
 
