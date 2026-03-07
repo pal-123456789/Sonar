@@ -83,27 +83,31 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// CONFIGURATION FOR RELIABILITY
-const MAX_HISTORY_POINTS = 50; // Keep enough for a smooth chart but not so much it slows down
-const DATA_EXPIRY_MS = 5 * 60 * 1000; // 5 Minutes auto-delete
+const MAX_HISTORY_POINTS = 50; 
+const DATA_EXPIRY_MS = 5 * 60 * 1000; 
 
+// Initial state now includes 6-Axis Data
 let machineStatus = {
     spectrum: [],      
     peakFreq: 0,       
     peakAmp: 0,
     temp: 25.0,
     amps: 0.0,
+    accelX: 0,
+    accelY: 0,
+    accelZ: 0,
+    gyroX: 0,
+    gyroY: 0,
+    gyroZ: 0,
     status: "OFFLINE", 
     timestamp: Date.now()
 };
 
 let history = [];
 
-console.log("🚀 Spectral Guard System Started");
+console.log("🚀 6-Axis Spectral Guard System Started");
 
-// GET Route: Returns live data + filtered history
 app.get('/api/telemetry', (req, res) => {
-    // AUTO-DELETE: Filter out data points older than 5 minutes on every request
     const now = Date.now();
     history = history.filter(point => (now - point.rawTime) < DATA_EXPIRY_MS);
 
@@ -115,44 +119,49 @@ app.get('/api/telemetry', (req, res) => {
 });
 
 app.post('/api/telemetry', (req, res) => {
-    const { spectrum, peakFreq, peakAmp, temp, amps } = req.body;
+    // Extract the new 6-axis data from the ESP32
+    const { spectrum, peakFreq, peakAmp, temp, amps, accelX, accelY, accelZ, gyroX, gyroY, gyroZ } = req.body;
 
     if (spectrum === undefined) return res.sendStatus(400);
 
-    // --- CLOUD AI LOGIC ---
     let currentStatus = "HEALTHY";
     if (temp > 85.0) currentStatus = "CRITICAL OVERHEAT";
     else if (amps > 6.5) currentStatus = "POWER SURGE";
-    else if (peakAmp > 20000) currentStatus = "SEVERE VIBRATION";
-    else if (peakAmp > 10000) currentStatus = "WARNING: UNBALANCED";
+    else if (peakAmp > 30000) currentStatus = "SEVERE VIBRATION";
+    else if (gyroX > 5000 || gyroY > 5000 || gyroZ > 5000) currentStatus = "WARNING: SHAFT TWIST";
+    else if (peakAmp > 15000) currentStatus = "WARNING: UNBALANCED";
 
     const now = Date.now();
 
-    // Update Live State
+    // Update Live State with 6-Axis Data
     machineStatus = {
         spectrum,
         peakFreq,
         peakAmp,
         temp,
         amps,
+        accelX,
+        accelY,
+        accelZ,
+        gyroX,
+        gyroY,
+        gyroZ,
         status: currentStatus,
         timestamp: now
     };
 
-    // Update History with expiration tracking
     history.push({
         temp: temp,
         amps: amps,
         time: new Date().toLocaleTimeString(),
-        rawTime: now // Used for the auto-delete filter
+        rawTime: now 
     });
 
-    // CIRCULAR BUFFER: Ensure history never exceeds limit
     if (history.length > MAX_HISTORY_POINTS) {
         history.shift(); 
     }
 
-    console.log(`📡 [${new Date().toLocaleTimeString()}] ${currentStatus} | T:${temp}C | A:${amps}A`);
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${currentStatus} | T:${temp}C | A:${amps}A | 3D_Vib:${Math.round(peakAmp)}`);
     res.sendStatus(200);
 });
 
