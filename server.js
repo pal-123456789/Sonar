@@ -86,13 +86,13 @@ app.use(express.json());
 const MAX_HISTORY_POINTS = 50; 
 const DATA_EXPIRY_MS = 5 * 60 * 1000; 
 
-// Initial state now includes 6-Axis Data
 let machineStatus = {
     spectrum: [],      
     peakFreq: 0,       
     peakAmp: 0,
     temp: 25.0,
-    amps: 0.0,
+    humidity: 50.0, // Added humidity
+    amps: 0.0,      // Kept at 0 so frontend doesn't crash
     accelX: 0,
     accelY: 0,
     accelZ: 0,
@@ -105,7 +105,7 @@ let machineStatus = {
 
 let history = [];
 
-console.log("🚀 6-Axis Spectral Guard System Started");
+console.log("🚀 6-Axis Spectral Guard System Started (NodeMCU Edition)");
 
 app.get('/api/telemetry', (req, res) => {
     const now = Date.now();
@@ -119,27 +119,27 @@ app.get('/api/telemetry', (req, res) => {
 });
 
 app.post('/api/telemetry', (req, res) => {
-    // Extract the new 6-axis data from the ESP32
-    const { spectrum, peakFreq, peakAmp, temp, amps, accelX, accelY, accelZ, gyroX, gyroY, gyroZ } = req.body;
+    // Extract data, now including humidity
+    const { spectrum, peakFreq, peakAmp, temp, humidity, amps, accelX, accelY, accelZ, gyroX, gyroY, gyroZ } = req.body;
 
     if (spectrum === undefined) return res.sendStatus(400);
 
     let currentStatus = "HEALTHY";
-    if (temp > 85.0) currentStatus = "CRITICAL OVERHEAT";
-    else if (amps > 6.5) currentStatus = "POWER SURGE";
+    // Adjust thresholds for your actual motor/setup
+    if (temp > 60.0) currentStatus = "CRITICAL OVERHEAT"; // Lowered DHT11 threshold (DHT11 maxes at 50C usually)
     else if (peakAmp > 30000) currentStatus = "SEVERE VIBRATION";
     else if (gyroX > 5000 || gyroY > 5000 || gyroZ > 5000) currentStatus = "WARNING: SHAFT TWIST";
     else if (peakAmp > 15000) currentStatus = "WARNING: UNBALANCED";
 
     const now = Date.now();
 
-    // Update Live State with 6-Axis Data
     machineStatus = {
         spectrum,
         peakFreq,
         peakAmp,
         temp,
-        amps,
+        humidity, // Save humidity state
+        amps: 0, 
         accelX,
         accelY,
         accelZ,
@@ -152,7 +152,7 @@ app.post('/api/telemetry', (req, res) => {
 
     history.push({
         temp: temp,
-        amps: amps,
+        humidity: humidity,
         time: new Date().toLocaleTimeString(),
         rawTime: now 
     });
@@ -161,7 +161,7 @@ app.post('/api/telemetry', (req, res) => {
         history.shift(); 
     }
 
-    console.log(`📡 [${new Date().toLocaleTimeString()}] ${currentStatus} | T:${temp}C | A:${amps}A | 3D_Vib:${Math.round(peakAmp)}`);
+    console.log(`📡 [${new Date().toLocaleTimeString()}] ${currentStatus} | T:${temp}C | H:${humidity}% | 3D_Vib:${Math.round(peakAmp)}`);
     res.sendStatus(200);
 });
 
